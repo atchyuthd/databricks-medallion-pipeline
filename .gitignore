@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Databricks
+.databricks/
+
+# Local scratch notebooks
+_scratch*
