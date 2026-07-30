@@ -8,11 +8,11 @@ Runs end to end on **Databricks Free Edition** with serverless compute — clone
 repo, run eight notebooks in order, and you have the full lakehouse. Sample data is
 included.
 
+![Pipeline DAG](docs/images/DAG_ecommerce_pipeline.png)
+
 ---
 
 ## Architecture
-
-![Pipeline DAG](docs/images/DAG_ecommerce_pipeline.png)
 
 ```mermaid
 flowchart LR
