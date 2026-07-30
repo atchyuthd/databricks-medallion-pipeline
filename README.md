@@ -12,6 +12,8 @@ included.
 
 ## Architecture
 
+![Pipeline DAG](docs/images/DAG_ecommerce_pipeline.png)
+
 ```mermaid
 flowchart LR
     subgraph SRC["Source"]
@@ -174,18 +176,27 @@ batch drops rather than a single bulk extract.
 ## Running it
 
 **Prerequisites:** a Databricks workspace (Free Edition is sufficient) with Unity
-Catalog enabled, and permission to create a catalog.
+Catalog enabled, and permission to create a catalog. Clone this repository as a
+Databricks Git folder (**Workspace → Create → Git folder**).
 
-1. Clone this repository as a Databricks Git folder
-   (**Workspace → Create → Git folder**).
-2. Open `notebooks/00_catalog_setup`. A **Target catalog** widget appears at the
-   top, defaulting to `ecommerce` — change it if you want a different target.
-3. Run notebooks `00` through `31` in numerical order.
+### Via the Databricks Job
+
+The repository includes a job definition (`resources/job.yml`) defining the task
+DAG: bootstrap tasks run in sequence, then the dimension and fact tracks run in
+parallel through bronze, silver, and gold, converging at the fact table. The
+target catalog is a single job-level parameter inherited by all eight tasks.
+
+![Successful run](docs/images/ecommerce_pipeline_run.png)
+
+### Manually
+
+Open `notebooks/00_catalog_setup`. A **Target catalog** widget appears at the top,
+defaulting to `ecommerce`. Run notebooks `00` through `31` in numerical order,
+setting the widget in each.
 
 Every notebook reads its catalog from the same widget, so the entire pipeline can
 be pointed at a different environment without editing code. This was verified by
-building a complete parallel catalog from empty and comparing row counts against
-the primary one.
+building a complete parallel catalog from empty.
 
 ---
 
