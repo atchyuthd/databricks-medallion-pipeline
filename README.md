@@ -4,9 +4,9 @@ A production-shaped batch pipeline that ingests raw e-commerce CSVs, cleanses th
 through a medallion architecture, and publishes a dimensional star schema for BI
 consumption. Built on Databricks with Unity Catalog and Delta Lake.
 
-Runs end to end on **Databricks Free Edition** with serverless compute — clone the
-repo, run eight notebooks in order, and you have the full lakehouse. Sample data is
-included.
+Runs end to end on **Databricks Free Edition** with serverless compute. The pipeline
+is deployed as a Databricks Asset Bundle — one command provisions the eight-task job
+and targets a chosen catalog. Sample data is included.
 
 ![Pipeline DAG](docs/images/DAG_ecommerce_pipeline.png)
 
@@ -150,25 +150,24 @@ batch drops rather than a single bulk extract.
 
 ```
 .
+├── databricks.yml              # Bundle definition, dev/prod targets
+├── README.md
 ├── conf/
 │   ├── config                  # Catalog/schema constants, widget parameterization
 │   └── reference_data          # Static business lookups (regions, FX rates)
 ├── data/sample/                # Sample CSVs, mirrors the volume structure
-│   ├── brands/
-│   ├── category/
-│   ├── products/
-│   ├── customers/
-│   ├── calendar/
-│   └── order_items/landing/
-└── notebooks/
-    ├── 00_catalog_setup        # Unity Catalog objects and volume skeleton
-    ├── 01_load_sample_data     # Copies sample CSVs into the raw volume
-    ├── 10_dim_bronze           # Dimension ingestion
-    ├── 11_fact_bronze          # Order items ingestion
-    ├── 20_dim_silver           # Dimension cleansing
-    ├── 21_fact_silver          # Order items cleansing
-    ├── 30_dim_gold             # Dimension publishing
-    └── 31_fact_gold            # Fact publishing
+├── docs/images/                # Pipeline screenshots
+├── notebooks/
+│   ├── 00_catalog_setup        # Unity Catalog objects and volume skeleton
+│   ├── 01_load_sample_data     # Copies sample CSVs into the raw volume
+│   ├── 10_dim_bronze           # Dimension ingestion
+│   ├── 11_fact_bronze          # Order items ingestion
+│   ├── 20_dim_silver           # Dimension cleansing
+│   ├── 21_fact_silver          # Order items cleansing
+│   ├── 30_dim_gold             # Dimension publishing
+│   └── 31_fact_gold            # Fact publishing
+└── resources/
+    └── job.yml                 # Job definition: task DAG and dependencies
 ```
 
 ---
@@ -176,17 +175,29 @@ batch drops rather than a single bulk extract.
 ## Running it
 
 **Prerequisites:** a Databricks workspace (Free Edition is sufficient) with Unity
-Catalog enabled, and permission to create a catalog. Clone this repository as a
-Databricks Git folder (**Workspace → Create → Git folder**).
+Catalog enabled and permission to create a catalog.
 
-### Via the Databricks Job
+### Deploy the bundle
 
-The repository includes a job definition (`resources/job.yml`) defining the task
-DAG: bootstrap tasks run in sequence, then the dimension and fact tracks run in
-parallel through bronze, silver, and gold, converging at the fact table. The
-target catalog is a single job-level parameter inherited by all eight tasks.
+```bash
+databricks auth login --host https://<your-workspace>.cloud.databricks.com
+databricks bundle validate
+databricks bundle deploy -t dev
+databricks bundle run ecommerce_lakehouse_pipeline -t dev
+```
+
+`-t dev` and `-t prod` differ only in the catalog they target — the same code
+deploys to either. Bootstrap tasks run in sequence, then the dimension and fact
+tracks run in parallel through bronze, silver, and gold, converging at the fact table.
 
 ![Successful run](docs/images/bundle_ecommerce_pipeline_run.png)
+
+### Or run the notebooks directly
+
+Clone the repository as a Databricks Git folder
+(**Workspace → Create → Git folder**), then run `notebooks/00` through `31` in
+numerical order. A **Target catalog** widget appears at the top of each notebook,
+defaulting to `ecommerce`.
 
 ### Manually
 
@@ -202,10 +213,19 @@ building a complete parallel catalog from empty.
 
 ## Engineering notes
 
+**One value controls the deployment target.** The catalog name flows through five
+layers without any of them knowing about the others: the bundle target sets a
+variable, `resources/job.yml` reads it as a job parameter, Databricks passes job
+parameters to notebooks as widgets, `conf/config` reads the widget and derives the
+schema and volume paths, and every table reference is built from those constants.
+Deploying to a different catalog is a one-word change in `databricks.yml`; no
+notebook contains a hardcoded catalog name.
+
 **Configuration is declared once.** Catalog, schema, and volume paths live in
-`conf/config` and are pulled in via `%run`. The catalog name is a widget rather
-than a constant, so job parameters can override it at runtime — the same mechanism
-a Databricks Asset Bundle would use to deploy across environments.
+`conf/config` and are pulled into each notebook via `%run`. Static business lookups
+— region mappings and FX rates — live in `conf/reference_data` and are imported only
+by the two gold notebooks that need them, so each notebook's dependencies are
+visible at the top of the file.
 
 **Transformations are named functions.** Every cleansing step is a small function
 composed with `DataFrame.transform()` rather than a chain of anonymous
@@ -243,7 +263,10 @@ mismatch and row fan-out when a brand spans multiple categories.
 **Column projections are allowlists.** Gold tables use explicit `select()` rather
 than `drop()`, so a new upstream column never leaks into a published table.
 
----
+**Reproducibility is verified, not assumed.** The pipeline was validated by
+deploying to an empty catalog and running the full DAG from scratch — which caught
+a cell reading a table that a later notebook creates, a bug invisible in a
+workspace where that table already existed.
 
 ## Design decisions and known limitations
 
@@ -275,7 +298,7 @@ choice for financial data and would eliminate floating-point drift in aggregates
 
 ## Roadmap
 
-- [ ] Databricks Asset Bundle defining the task DAG, replacing manual notebook runs
+- [x] Databricks Asset Bundle deploying the task DAG across dev and prod targets
 - [ ] Data quality assertions on grain, key nullity, and referential integrity
 - [ ] Transformation functions extracted to an importable package with `pytest` coverage
 - [ ] GitHub Actions CI running lint and tests on pull requests
