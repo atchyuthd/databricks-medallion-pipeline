@@ -5,43 +5,43 @@ resources:
       tasks:
         - task_key: catalog_setup
           notebook_task:
-            notebook_path: ../notebooks/00_catalog_setup
+            notebook_path: ../notebooks/00_catalog_setup.ipynb
         - task_key: load_sample_data
           depends_on:
             - task_key: catalog_setup
           notebook_task:
-            notebook_path: ../notebooks/01_load_sample_data
+            notebook_path: ../notebooks/01_load_sample_data.ipynb
         - task_key: dim_bronze
           depends_on:
             - task_key: load_sample_data
           notebook_task:
-            notebook_path: ../notebooks/10_dim_bronze
+            notebook_path: ../notebooks/10_dim_bronze.ipynb
         - task_key: dim_silver
           depends_on:
             - task_key: dim_bronze
           notebook_task:
-            notebook_path: ../notebooks/20_dim_silver
+            notebook_path: ../notebooks/20_dim_silver.ipynb
         - task_key: dim_gold
           depends_on:
             - task_key: dim_silver
           notebook_task:
-            notebook_path: ../notebooks/30_dim_gold
+            notebook_path: ../notebooks/30_dim_gold.ipynb
         - task_key: fact_bronze
           depends_on:
             - task_key: load_sample_data
           notebook_task:
-            notebook_path: ../notebooks/11_fact_bronze
+            notebook_path: ../notebooks/11_fact_bronze.ipynb
         - task_key: fact_silver
           depends_on:
             - task_key: fact_bronze
           notebook_task:
-            notebook_path: ../notebooks/21_fact_silver
+            notebook_path: ../notebooks/21_fact_silver.ipynb
         - task_key: fact_gold
           depends_on:
             - task_key: dim_gold
             - task_key: fact_silver
           notebook_task:
-            notebook_path: ../notebooks/31_fact_gold
+            notebook_path: ../notebooks/31_fact_gold.ipynb
       queue:
         enabled: true
       parameters:

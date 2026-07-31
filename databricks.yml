@@ -1,0 +1,26 @@
+﻿bundle:
+  name: ecommerce-lakehouse
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Target Unity Catalog for this deployment
+    default: ecommerce
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-6624d883-1319.cloud.databricks.com
+    variables:
+      catalog: ecommerce_dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-6624d883-1319.cloud.databricks.com
+    variables:
+      catalog: ecommerce
