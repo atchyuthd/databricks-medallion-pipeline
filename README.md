@@ -186,7 +186,7 @@ DAG: bootstrap tasks run in sequence, then the dimension and fact tracks run in
 parallel through bronze, silver, and gold, converging at the fact table. The
 target catalog is a single job-level parameter inherited by all eight tasks.
 
-![Successful run](docs/images/ecommerce_pipeline_run.png)
+![Successful run](docs/images/bundle_ecommerce_pipeline_run.png)
 
 ### Manually
 
