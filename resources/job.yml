@@ -46,5 +46,5 @@ resources:
         enabled: true
       parameters:
         - name: catalog
-          default: ecommerce
+          default: ${var.catalog}
       performance_target: PERFORMANCE_OPTIMIZED
