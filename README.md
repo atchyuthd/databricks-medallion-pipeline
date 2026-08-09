@@ -135,7 +135,7 @@ The silver layer exists to handle it, so the defects are the interesting part.
 
 | Entity | Defects handled |
 |---|---|
-| **order_items** | Quantities spelled as words (`"Two"`), currency symbols embedded in prices (`$49.99`), percent signs in discount rates (`21%`), two different timestamp formats in the same column, duplicate `(order_id, item_seq)` line items, non-numeric characters in tax amounts |
+| **order_items** | Quantities spelled as words (`"Two"`), currency symbols embedded in prices (`$49.99`), percent signs in discount rates (`21%`), two different timestamp formats in the same column, duplicate `(order_id, item_seq)` line items re-emitted with corrections in a later batch, non-numeric characters in tax amounts |
 | **products** | Misspelled materials (`Coton`, `Ruber`, `Alumium`), unit suffixes on numeric weights (`450g`), comma decimal separators (`12,5`), inconsistent code casing, negative and null rating counts |
 | **brands** | Non-standard category codes (`GROCERY` vs `GRCY`), whitespace padding, punctuation in brand codes |
 | **customers** | Missing customer identifiers, null phone numbers, state codes requiring country-scoped region mapping |
@@ -244,6 +244,12 @@ df_silver_order_items = (
 )
 ```
 
+**Deduplication is deterministic.** Order line items are deduplicated on
+`(order_id, item_seq)` using a window ordered by source filename, so a corrected
+row arriving in a later batch supersedes the original. A plain `dropDuplicates()`
+would keep an arbitrary row — which happens to pass on a clean dataset and
+silently corrupts the fact table on a dirty one.
+
 **Bronze is all-string by design** for `order_items`. The source emits mixed
 formats that would null out or fail on a typed read; landing them as strings
 preserves the raw values and pushes parsing into a layer where it can be handled
@@ -275,6 +281,14 @@ dimension tables, so customer attribute history is not retained. A production
 implementation would use Delta `MERGE` with SCD Type 2 semantics — effective and
 expiry dates plus an `is_current` flag — so a customer relocating between regions
 preserves the historical attribution of their earlier orders.
+
+**Bronze records ingestion time, not arrival time.** `_ingested_at` is set with
+`current_timestamp()` at write, which Spark evaluates once per batch — every row
+in a run shares a timestamp regardless of which file it came from. That makes it
+useless for ordering records across batches, so deduplication orders by
+`_source_file` instead, relying on the date encoded in the filename. Auto Loader
+would expose real per-file metadata including modification time, removing the
+dependency on a filename convention.
 
 **Currency conversion uses a fixed snapshot.** FX rates in `conf/reference_data`
 are pinned to a single date (`FX_RATE_AS_OF`). This is adequate for a static
