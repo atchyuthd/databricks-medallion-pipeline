@@ -126,6 +126,12 @@ erDiagram
 `net_amount` (pre-tax), `total_amount` (tax-inclusive), and `total_amount_inr`
 for cross-currency reporting.
 
+The schema is declared in Unity Catalog, not just diagrammed — each dimension
+carries a primary key, the fact a composite primary key on
+`(transaction_id, seq_no)`, and three foreign keys resolve to the dimensions:
+
+![Declared constraints in Unity Catalog](docs/images/gld_fact_table_relationships.png)
+
 ---
 
 ## Source data and the defects it contains
@@ -135,14 +141,37 @@ The silver layer exists to handle it, so the defects are the interesting part.
 
 | Entity | Defects handled |
 |---|---|
-| **order_items** | Quantities spelled as words (`"Two"`), currency symbols embedded in prices (`$49.99`), percent signs in discount rates (`21%`), two different timestamp formats in the same column, duplicate `(order_id, item_seq)` line items re-emitted with corrections in a later batch, non-numeric characters in tax amounts |
-| **products** | Misspelled materials (`Coton`, `Ruber`, `Alumium`), unit suffixes on numeric weights (`450g`), comma decimal separators (`12,5`), inconsistent code casing, negative and null rating counts |
+| **order_items** | Quantities spelled as words (`"Two"`), currency symbols in prices (`$49.99`), percent signs in discount rates (`21%`), two timestamp formats in one column, duplicate `(order_id, item_seq)` line items re-emitted with corrections in a later batch, non-numeric characters in tax amounts |
+| **products** | Misspelled materials (`Coton`, `Ruber`, `Alumium`), unit suffixes on weights (`450g`), comma decimal separators (`12,5`), inconsistent code casing, negative and null rating counts |
 | **brands** | Non-standard category codes (`GROCERY` vs `GRCY`), whitespace padding, punctuation in brand codes |
 | **customers** | Missing customer identifiers, null phone numbers, state codes requiring country-scoped region mapping |
 | **calendar** | Negative week-of-year values, duplicate dates, inconsistent day-name casing |
 
 `order_items` arrives as 50+ CSV files in a landing directory, simulating daily
 batch drops rather than a single bulk extract.
+
+---
+
+## Data quality
+
+Two complementary mechanisms, because they do different jobs.
+
+**Runtime assertions** run at the end of each gold notebook and fail the job task
+on violation:
+
+- Grain uniqueness — one row per `product_id`, `customer_id`, and `date_id` in the
+  dimensions; one row per `(transaction_id, seq_no)` in the fact
+- Key nullity — no null keys in any published table
+- Referential integrity — every fact row resolves to an existing member in all
+  three dimensions
+
+**Unity Catalog constraints** declare primary and foreign keys on the gold tables.
+These are informational rather than enforced, so they don't replace the assertions —
+but the query optimizer uses them to eliminate redundant work, BI tools read them to
+auto-detect relationships, and they make the schema discoverable in Catalog Explorer
+without reading this file.
+
+The assertions enforce; the constraints describe.
 
 ---
 
@@ -188,26 +217,16 @@ databricks bundle run ecommerce_lakehouse_pipeline -t dev
 
 `-t dev` and `-t prod` differ only in the catalog they target — the same code
 deploys to either. Bootstrap tasks run in sequence, then the dimension and fact
-tracks run in parallel through bronze, silver, and gold, converging at the fact table.
+tracks run in parallel through bronze, silver, and gold, converging at the fact
+table.
 
 ![Successful run](docs/images/bundle_ecommerce_pipeline_run.png)
 
 ### Or run the notebooks directly
 
-Clone the repository as a Databricks Git folder
-(**Workspace → Create → Git folder**), then run `notebooks/00` through `31` in
-numerical order. A **Target catalog** widget appears at the top of each notebook,
-defaulting to `ecommerce`.
-
-### Manually
-
-Open `notebooks/00_catalog_setup`. A **Target catalog** widget appears at the top,
-defaulting to `ecommerce`. Run notebooks `00` through `31` in numerical order,
-setting the widget in each.
-
-Every notebook reads its catalog from the same widget, so the entire pipeline can
-be pointed at a different environment without editing code. This was verified by
-building a complete parallel catalog from empty.
+Clone the repository as a Databricks Git folder (**Workspace → Create → Git
+folder**), then run `notebooks/00` through `31` in numerical order. A **Target
+catalog** widget appears at the top of each notebook, defaulting to `ecommerce`.
 
 ---
 
@@ -223,9 +242,9 @@ notebook contains a hardcoded catalog name.
 
 **Configuration is declared once.** Catalog, schema, and volume paths live in
 `conf/config` and are pulled into each notebook via `%run`. Static business lookups
-— region mappings and FX rates — live in `conf/reference_data` and are imported only
-by the two gold notebooks that need them, so each notebook's dependencies are
-visible at the top of the file.
+— region mappings and FX rates — live in `conf/reference_data`, imported only by the
+two gold notebooks that need them, so each notebook's dependencies are visible at
+the top of the file.
 
 **Transformations are named functions.** Every cleansing step is a small function
 composed with `DataFrame.transform()` rather than a chain of anonymous
@@ -244,22 +263,15 @@ df_silver_order_items = (
 )
 ```
 
+**Bronze is all-string by design** for `order_items`. The source emits mixed formats
+that would null out or fail on a typed read; landing them as strings preserves the
+raw values and pushes parsing into a layer where it can be handled explicitly.
+
 **Deduplication is deterministic.** Order line items are deduplicated on
-`(order_id, item_seq)` using a window ordered by source filename, so a corrected
-row arriving in a later batch supersedes the original. A plain `dropDuplicates()`
-would keep an arbitrary row — which happens to pass on a clean dataset and
-silently corrupts the fact table on a dirty one.
-
-**Bronze is all-string by design** for `order_items`. The source emits mixed
-formats that would null out or fail on a typed read; landing them as strings
-preserves the raw values and pushes parsing into a layer where it can be handled
-explicitly.
-
-**No schema evolution flags.** Every write is a plain `mode("overwrite")`. Earlier
-versions carried `mergeSchema: true` to accommodate an in-place type change in the
-calendar transformation; that was resolved by emitting label columns alongside the
-numeric originals instead of overwriting them. With the flags removed, an
-unintended schema change fails loudly rather than being silently absorbed.
+`(order_id, item_seq)` using a window ordered by source filename, so a corrected row
+arriving in a later batch supersedes the original. A plain `dropDuplicates()` keeps
+an arbitrary row — which passes on a clean dataset and silently corrupts the fact
+table on a dirty one.
 
 **Dimension attributes join on their own keys.** Product category and brand names
 are resolved from the product's own `category_code` and `brand_code` rather than
@@ -269,12 +281,50 @@ mismatch and row fan-out when a brand spans multiple categories.
 **Column projections are allowlists.** Gold tables use explicit `select()` rather
 than `drop()`, so a new upstream column never leaks into a published table.
 
+**No schema evolution flags.** Every write is a plain `mode("overwrite")`. Earlier
+versions carried `mergeSchema: true` to accommodate an in-place type change in the
+calendar transformation; that was resolved by emitting label columns alongside the
+numeric originals instead of overwriting them. With the flags removed, an unintended
+schema change fails loudly rather than being silently absorbed.
+
 **Reproducibility is verified, not assumed.** The pipeline was validated by
-deploying to an empty catalog and running the full DAG from scratch — which caught
-a cell reading a table that a later notebook creates, a bug invisible in a
-workspace where that table already existed.
+deploying to an empty catalog and running the full DAG from scratch — which caught a
+cell reading a table that a later notebook creates, a bug invisible in a workspace
+where that table already existed.
+
+**Idempotency is tested, not assumed.** Every notebook is verified by running the
+deployed job twice in succession against a fresh catalog. The second run is the one
+that matters: it exercises the constraint-drop paths, the conditional guards for
+objects that don't exist on a first run, and any append that should have been an
+overwrite.
+
+---
 
 ## Design decisions and known limitations
+
+**Orphaned fact rows are preserved, not filtered.** The referential integrity check
+initially failed on 207 order line items whose `customer_id` had been dropped in
+silver for being null. Those rows carry valid products, dates, and revenue — the
+only missing piece is customer attribution. They are mapped to an Unknown dimension
+member (`customer_id = '-1'`) rather than discarded, so revenue reconciles to source
+and the attribution gap stays queryable. Filtering them would have silently
+understated every unfiltered aggregate and hidden an upstream data quality problem.
+
+**Bronze records ingestion time, not arrival time.** `_ingested_at` is set with
+`current_timestamp()` at write, which Spark evaluates once per batch — every row in
+a run shares a timestamp regardless of which file it came from. That makes it
+useless for ordering records across batches, so deduplication orders by
+`_source_file` instead, relying on the date encoded in the filename. Auto Loader
+would expose real per-file metadata including modification time, removing the
+dependency on a filename convention.
+
+**Constraint dependencies constrain the load order.** Because the pipeline
+full-refreshes its dimensions, each run must drop and recreate their primary keys —
+and a primary key cannot be dropped while a foreign key references it. The dimension
+notebook therefore releases the fact table's foreign keys before rebuilding the
+dimension keys, and the fact notebook recreates them afterward. This teardown is a
+consequence of full-refresh loading; an incremental `MERGE` never drops the tables,
+so the problem disappears with it.
 
 **Dimensions are full-refresh, not slowly-changing.** Each run overwrites the
 dimension tables, so customer attribute history is not retained. A production
@@ -282,28 +332,20 @@ implementation would use Delta `MERGE` with SCD Type 2 semantics — effective a
 expiry dates plus an `is_current` flag — so a customer relocating between regions
 preserves the historical attribution of their earlier orders.
 
-**Bronze records ingestion time, not arrival time.** `_ingested_at` is set with
-`current_timestamp()` at write, which Spark evaluates once per batch — every row
-in a run shares a timestamp regardless of which file it came from. That makes it
-useless for ordering records across batches, so deduplication orders by
-`_source_file` instead, relying on the date encoded in the filename. Auto Loader
-would expose real per-file metadata including modification time, removing the
-dependency on a filename convention.
-
-**Currency conversion uses a fixed snapshot.** FX rates in `conf/reference_data`
-are pinned to a single date (`FX_RATE_AS_OF`). This is adequate for a static
-dataset but wrong for a growing one: historical orders should convert at the rate
-in effect on their transaction date. The production version is a date-effective
-rate dimension joined on transaction date rather than a dictionary lookup.
-
 **The fact table is full-refresh.** `order_items` is read with a glob and
 overwritten each run. Auto Loader with checkpointing would give incremental
 ingestion, schema evolution, and idempotent reprocessing of the landing directory.
 
+**Currency conversion uses a fixed snapshot.** FX rates in `conf/reference_data` are
+pinned to a single date (`FX_RATE_AS_OF`). This is adequate for a static dataset but
+wrong for a growing one: historical orders should convert at the rate in effect on
+their transaction date. The production version is a date-effective rate dimension
+joined on transaction date rather than a dictionary lookup.
+
 **Reference data lives in code.** Region mappings and FX rates are Python
-dictionaries. This is reasonable at their current size, but data that changes on a
-different cadence than the code — and that non-engineers may need to edit —
-belongs in seed tables loaded at setup.
+dictionaries. Reasonable at their current size, but data that changes on a different
+cadence than the code — and that non-engineers may need to edit — belongs in seed
+tables loaded at setup.
 
 **Monetary values are stored as `double`.** `DecimalType(18, 2)` is the correct
 choice for financial data and would eliminate floating-point drift in aggregates.
@@ -313,7 +355,8 @@ choice for financial data and would eliminate floating-point drift in aggregates
 ## Roadmap
 
 - [x] Databricks Asset Bundle deploying the task DAG across dev and prod targets
-- [ ] Data quality assertions on grain, key nullity, and referential integrity
+- [x] Data quality assertions on grain, key nullity, and referential integrity
+- [x] Primary and foreign keys declared in Unity Catalog
 - [ ] Transformation functions extracted to an importable package with `pytest` coverage
 - [ ] GitHub Actions CI running lint and tests on pull requests
 - [ ] SCD Type 2 on the customer dimension
