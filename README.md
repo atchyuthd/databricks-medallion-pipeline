@@ -110,7 +110,7 @@ erDiagram
 
     gld_dim_calendar {
         int date_id PK
-        date date
+        date calendar_date
         int year
         string month_name
         string day_name
