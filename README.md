@@ -179,24 +179,24 @@ The assertions enforce; the constraints describe.
 
 ```
 .
-├── databricks.yml              # Bundle definition, dev/prod targets
+├── databricks.yml                 # Bundle definition, dev/prod targets
 ├── README.md
 ├── conf/
-│   ├── config                  # Catalog/schema constants, widget parameterization
-│   └── reference_data          # Static business lookups (regions, FX rates)
-├── data/sample/                # Sample CSVs, mirrors the volume structure
-├── docs/images/                # Pipeline screenshots
+│   ├── config.py                  # Catalog/schema constants, widget parameterization
+│   └── reference_data.py          # Static business lookups (regions, FX rates)
+├── data/sample/                   # Sample CSVs, mirrors the volume structure
+├── docs/images/                   # Pipeline screenshots
 ├── notebooks/
-│   ├── 00_catalog_setup        # Unity Catalog objects and volume skeleton
-│   ├── 01_load_sample_data     # Copies sample CSVs into the raw volume
-│   ├── 10_dim_bronze           # Dimension ingestion
-│   ├── 11_fact_bronze          # Order items ingestion
-│   ├── 20_dim_silver           # Dimension cleansing
-│   ├── 21_fact_silver          # Order items cleansing
-│   ├── 30_dim_gold             # Dimension publishing
-│   └── 31_fact_gold            # Fact publishing
+│   ├── 00_catalog_setup.py        # Unity Catalog objects and volume skeleton
+│   ├── 01_load_sample_data.py     # Copies sample CSVs into the raw volume
+│   ├── 10_dim_bronze.py           # Dimension ingestion
+│   ├── 11_fact_bronze.py          # Order items ingestion
+│   ├── 20_dim_silver.py           # Dimension cleansing
+│   ├── 21_fact_silver.py          # Order items cleansing
+│   ├── 30_dim_gold.py             # Dimension publishing
+│   └── 31_fact_gold.py            # Fact publishing
 └── resources/
-    └── job.yml                 # Job definition: task DAG and dependencies
+    └── job.yml                    # Job definition: task DAG and dependencies
 ```
 
 ---
