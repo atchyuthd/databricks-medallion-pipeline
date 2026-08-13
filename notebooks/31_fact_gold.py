@@ -21,7 +21,7 @@
 # MAGIC date-effective rate table so historical orders convert at the rate in
 # MAGIC effect on their transaction date.
 # MAGIC
-# MAGIC **Layer contract:** gold publishes business columns only — see `3_dim_gold`.
+# MAGIC **Layer contract:** gold publishes business columns only — see `30_dim_gold`.
 # MAGIC
 # MAGIC **Inputs:** `{SILVER}.slv_order_items`
 # MAGIC **Outputs:** `{GOLD}.gld_fact_order_items`

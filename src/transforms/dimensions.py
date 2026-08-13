@@ -7,7 +7,8 @@ keeping ``conf/config`` the single place they are defined.
 """
 
 import pyspark.sql.functions as F
-from pyspark.sql.types import IntegerType, FloatType
+from pyspark.sql import Row
+from pyspark.sql.types import IntegerType, FloatType, StructType, StructField
 
 # Non-standard category codes observed in the brands source
 CATEGORY_ANOMALIES = {
@@ -25,7 +26,7 @@ MATERIAL_MISSPELLINGS = {
 
 
 # --------------------------------------------------------------------------- #
-# Brands
+# Silver: brands
 # --------------------------------------------------------------------------- #
 
 def clean_brand_names(df):
@@ -45,7 +46,7 @@ def normalize_brand_category_codes(df):
 
 
 # --------------------------------------------------------------------------- #
-# Category
+# Silver: category
 # --------------------------------------------------------------------------- #
 
 def normalize_category_codes(df):
@@ -62,11 +63,11 @@ def deduplicate_categories(df):
 
 
 # --------------------------------------------------------------------------- #
-# Products
+# Silver: products
 # --------------------------------------------------------------------------- #
 
 def parse_product_dimensions(df):
-    """Strip unit and format artifacts from physical dimensions, then cast to numeric.
+    """Strip unit and format artifacts from physical dimensions, then cast.
 
     Weights arrive with a trailing unit suffix ("450g") and lengths use a comma
     decimal separator ("12,5").
@@ -108,7 +109,7 @@ def clean_rating_counts(df):
 
 
 # --------------------------------------------------------------------------- #
-# Customers
+# Silver: customers
 # --------------------------------------------------------------------------- #
 
 def drop_rows_missing_customer_id(df):
@@ -126,7 +127,7 @@ def fill_missing_phone(df, unknown_value):
 
 
 # --------------------------------------------------------------------------- #
-# Calendar
+# Silver: calendar
 # --------------------------------------------------------------------------- #
 
 def parse_calendar_dates(df):
@@ -145,7 +146,7 @@ def normalize_day_names(df):
 
 
 def add_period_labels(df):
-    """Add year-scoped quarter and week labels, preserving the numeric originals.
+    """Add year-scoped quarter and week labels, preserving numeric originals.
 
     Numeric quarter and week_of_year are kept for sorting; the label columns are
     for display. String labels sort incorrectly (Week10 before Week9).
@@ -161,4 +162,86 @@ def add_period_labels(df):
             "week_label",
             F.concat(F.lit("Week"), F.col("week_of_year"), F.lit("-"), F.col("year")),
         )
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Gold: customers
+# --------------------------------------------------------------------------- #
+
+def build_region_mapping(spark, country_state_map):
+    """Flatten the nested country -> state -> region dict into a lookup DataFrame."""
+    rows = [
+        Row(country=country, state=state_code, region=region)
+        for country, states in country_state_map.items()
+        for state_code, region in states.items()
+    ]
+    return spark.createDataFrame(rows)
+
+
+def add_customer_region(df, mapping_df, unknown_region):
+    """Attach region by (country, state); unmatched pairs fall back to a sentinel."""
+    return df.join(mapping_df, on=["country", "state"], how="left").fillna(
+        {"region": unknown_region}
+    )
+
+
+def select_dim_customer_columns(df):
+    """Project the published customer dimension.
+
+    Gold exposes business columns only; audit columns stop at silver.
+    """
+    return df.select(
+        "customer_id", "phone", "country_code", "country", "state", "region",
+    )
+
+
+def add_unknown_member(df, spark, unknown_key, unknown_value):
+    """Append the Unknown dimension member for unmatched fact rows.
+
+    Order line items are preserved even when customer attribution is missing,
+    so revenue reconciles to source and the attribution gap stays queryable.
+    Must run after the column projection, so the sentinel row matches the
+    published schema.
+    """
+    nullable_schema = StructType(
+        [StructField(field.name, field.dataType, True) for field in df.schema.fields]
+    )
+    unknown = spark.createDataFrame(
+        [(unknown_key, None, None, None, None, unknown_value)],
+        schema=nullable_schema,
+    )
+    return df.unionByName(unknown)
+
+
+# --------------------------------------------------------------------------- #
+# Gold: calendar
+# --------------------------------------------------------------------------- #
+
+def add_calendar_date_key(df):
+    """Integer surrogate key in yyyyMMdd form, derived from the date column."""
+    return df.withColumn("date_id", F.date_format("date", "yyyyMMdd").cast("int"))
+
+
+def add_month_name(df):
+    """Add the full month name for display."""
+    return df.withColumn("month_name", F.date_format("date", "MMMM"))
+
+
+def add_weekend_flag(df):
+    """Flag Saturdays and Sundays."""
+    return df.withColumn(
+        "is_weekend",
+        F.when(F.col("day_name").isin("Saturday", "Sunday"), 1).otherwise(0),
+    )
+
+
+def select_dim_calendar_columns(df):
+    """Project the published calendar dimension.
+
+    Gold exposes business columns only; audit columns stop at silver.
+    """
+    return df.select(
+        "date_id", "date", "year", "month_name", "day_name",
+        "is_weekend", "quarter", "quarter_label", "week_of_year", "week_label",
     )
