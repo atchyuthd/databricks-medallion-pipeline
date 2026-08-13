@@ -79,7 +79,7 @@ df_silver_brands = (df_bronze_brands
 
 # COMMAND ----------
 
-df_silver_brands.write.format('delta').mode('overwrite').option('mergeSchema', 'true').saveAsTable(f'{SILVER}.slv_brands')
+df_silver_brands.write.format('delta').mode('overwrite').saveAsTable(f'{SILVER}.slv_brands')
 
 # COMMAND ----------
 
@@ -125,7 +125,7 @@ df_silver_category = (
 # Write raw data to the silver layer (catalog: ecommerce, schema: silver, table: slv_category)
 df_silver_category.write.format('delta') \
     .mode('overwrite')\
-    .option('mergeSchema', 'true')\
+    \
     .saveAsTable(f"{SILVER}.slv_category")
 
 # COMMAND ----------
@@ -250,7 +250,7 @@ df_silver_customers = (
 
 # COMMAND ----------
 
-df_silver_customers.write.format('delta').mode('overwrite').option('mergeSchema', 'true').saveAsTable(f"{SILVER}.slv_customers")
+df_silver_customers.write.format('delta').mode('overwrite').saveAsTable(f"{SILVER}.slv_customers")
 
 # COMMAND ----------
 
@@ -318,4 +318,4 @@ df_silver_calendar = (
 
 # COMMAND ----------
 
-df_silver_calendar.write.format('delta').mode('overwrite').option('mergeSchema', 'true').saveAsTable(f"{SILVER}.slv_calendar")
+df_silver_calendar.write.format('delta').mode('overwrite').saveAsTable(f"{SILVER}.slv_calendar")

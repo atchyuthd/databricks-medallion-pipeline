@@ -183,7 +183,6 @@ df_gold_order_items = (
 # Write raw data to the gold layer (catalog: ecommerce, schema: gold, table: gld_fact_order_items)
 df_gold_order_items.write.format("delta") \
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{GOLD}.gld_fact_order_items")
 
 # COMMAND ----------

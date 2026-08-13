@@ -136,7 +136,6 @@ df_gold_customers = (
 # Write raw data to the gold layer (catalog: ecommerce, schema: gold, table: gld_dim_customers)
 df_gold_customers.write.format("delta") \
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{GOLD}.gld_dim_customers")
 
 # COMMAND ----------
@@ -196,7 +195,6 @@ df_gold_calendar = (df_silver_calendar
 # write table to gold layer
 df_gold_calendar.write.format("delta") \
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{GOLD}.gld_dim_calendar")
 
 # COMMAND ----------

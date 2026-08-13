@@ -46,7 +46,7 @@ df_brands = df_brands.withColumn("_source_file", F.col("_metadata.file_path"))\
 
 # COMMAND ----------
 
-df_brands.write.format("delta").mode('overwrite').option("mergeSchema", "true").saveAsTable(f"{BRONZE}.brz_brands")
+df_brands.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_brands")
 
 # COMMAND ----------
 
@@ -69,7 +69,7 @@ df_category = spark.read.option("header", "true").option("delimiter", ",").schem
 df_category = df_category.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
 # Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_category)
-df_category.write.format("delta").mode('overwrite').option("mergeSchema", "true").saveAsTable(f"{BRONZE}.brz_category")
+df_category.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_category")
 
 # COMMAND ----------
 
@@ -102,7 +102,7 @@ df_products = spark.read.option("header", "true").option("delimiter", ",").schem
 df_products = df_products.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
 # Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_products)
-df_products.write.format("delta").mode('overwrite').option("mergeSchema", "true").saveAsTable(f"{BRONZE}.brz_products")
+df_products.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_products")
 
 # COMMAND ----------
 
@@ -128,7 +128,7 @@ df_customers = spark.read.option("header", "true").option("delimiter", ",").sche
 df_customers = df_customers.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
 # Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_customers)
-df_customers.write.format("delta").mode('overwrite').option("mergeSchema", "true").saveAsTable(f"{BRONZE}.brz_customers")
+df_customers.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_customers")
 
 # COMMAND ----------
 
@@ -153,7 +153,7 @@ df_calendar = spark.read.option("header", "true").option("delimiter", ",").schem
 df_calendar = df_calendar.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
 # Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_date)
-df_calendar.write.format("delta").mode('overwrite').option("mergeSchema", "true").saveAsTable(f"{BRONZE}.brz_calendar")
+df_calendar.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_calendar")
 
 # COMMAND ----------
 

@@ -62,5 +62,4 @@ df_bronze_order_items = spark.read.option("header", "true").option("delimiter", 
 
 df_bronze_order_items.write.format("delta") \
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{BRONZE}.brz_order_items")

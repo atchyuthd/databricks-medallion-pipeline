@@ -122,5 +122,4 @@ df_silver_order_items = (
 # Write raw data to the silver layer (catalog: ecommerce, schema: silver, table: slv_order_items)
 df_silver_order_items.write.format("delta") \
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{SILVER}.slv_order_items")
