@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %run ../conf/config
 
 # COMMAND ----------
@@ -31,8 +35,17 @@
 # COMMAND ----------
 
 import pyspark.sql.functions as F
-from pyspark.sql import Row
-from pyspark.sql.types import StructType, StructField
+
+from src.transforms.dimensions import (
+    build_region_mapping,
+    add_customer_region,
+    select_dim_customer_columns,
+    add_unknown_member,
+    add_calendar_date_key,
+    add_month_name,
+    add_weekend_flag,
+    select_dim_calendar_columns,
+)
 
 # COMMAND ----------
 
@@ -82,53 +95,13 @@ df_silver_customers = spark.read.table(f"{SILVER}.slv_customers")
 
 # COMMAND ----------
 
-def build_region_mapping(spark, country_state_map):
-    """Flatten the nested country→state→region dict into a lookup DataFrame."""
-    rows = [
-        Row(country=country, state=state_code, region=region)
-        for country, states in country_state_map.items()
-        for state_code, region in states.items()
-    ]
-    return spark.createDataFrame(rows)
-
-
-def add_customer_region(df, mapping_df):
-    """Attach region by (country, state); unmatched pairs fall back to a sentinel."""
-    return df.join(mapping_df, on=["country", "state"], how="left").fillna(
-        {"region": f'{UNKNOWN_REGION}'}
-    )
-
-def select_dim_customer_columns(df):
-    """Fix presentation column order for the BI layer."""
-    return df.select(
-        "customer_id", "phone", "country_code", "country", "state", "region",
-    )
-
-def add_unknown_member(df):
-    """Append the Unknown dimension member for unmatched fact rows.
-
-    Order line items are preserved even when customer attribution is missing,
-    so revenue reconciles to source and the attribution gap stays queryable.
-    """
-    nullable_schema = StructType([
-        StructField(field.name, field.dataType, True) for field in df.schema.fields
-    ])
-    
-    unknown = spark.createDataFrame(
-    [(UNKNOWN_KEY, None, None, None, None, UNKNOWN_VALUE)],
-    schema=nullable_schema,
-    )
-    return df.unionByName(unknown)
-
-# COMMAND ----------
-
 df_region_mapping = build_region_mapping(spark, COUNTRY_STATE_MAP)
 
 df_gold_customers = (
     df_silver_customers
-    .transform(add_customer_region, df_region_mapping)
+    .transform(add_customer_region, df_region_mapping, UNKNOWN_REGION)
     .transform(select_dim_customer_columns)
-    .transform(add_unknown_member)
+    .transform(add_unknown_member, spark, UNKNOWN_KEY, UNKNOWN_VALUE)
 )
 
 # COMMAND ----------
@@ -150,45 +123,17 @@ df_silver_calendar = spark.table(f'{SILVER}.slv_calendar')
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-def add_date_key(df):
-    """Integer surrogate key in yyyyMMdd form."""
-    return df.withColumn("date_id", F.date_format("date", "yyyyMMdd").cast("int"))
-
-
-def add_month_name(df):
-    return df.withColumn("month_name", F.date_format("date", "MMMM"))
-
-
-def add_weekend_flag(df):
-    return df.withColumn(
-        "is_weekend", F.when(F.col("day_name").isin("Saturday", "Sunday"), 1).otherwise(0)
-    )
-
-
-def select_dim_calendar_columns(df):
-    """Fix presentation column order for the BI layer."""
-    return df.select(
-        "date_id", "date", "year", "month_name", "day_name",
-        "is_weekend", "quarter", "quarter_label", "week_of_year", "week_label"
-    )
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ### Pipeline
 
 # COMMAND ----------
 
-df_gold_calendar = (df_silver_calendar
-                    .transform(add_date_key)
-                    .transform(add_month_name)
-                    .transform(add_weekend_flag)
-                    .transform(select_dim_calendar_columns)
-                    )
+df_gold_calendar = (
+    df_silver_calendar
+    .transform(add_calendar_date_key)
+    .transform(add_month_name)
+    .transform(add_weekend_flag)
+    .transform(select_dim_calendar_columns)
+)
 
 # COMMAND ----------
 

@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %run ../conf/config
 
 # COMMAND ----------
@@ -33,7 +37,15 @@
 # COMMAND ----------
 
 import pyspark.sql.functions as F
-from pyspark.sql.types import  IntegerType
+
+from src.transforms.order_items import (
+    add_revenue_amounts,
+    add_date_key,
+    add_coupon_flag,
+    convert_to_reporting_currency,
+    resolve_unknown_customers,
+    select_fact_columns,
+)
 
 # COMMAND ----------
 
@@ -43,118 +55,6 @@ from pyspark.sql.types import  IntegerType
 # COMMAND ----------
 
 df_silver_order_items = spark.table(f"{SILVER}.slv_order_items")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-def add_revenue_amounts(df):
-    """Derive gross, discount, net (pre-tax), and total (tax-inclusive) amounts.
-    discount_pct arrives as a whole number, e.g. 21 means 21%.
-    """
-    return (
-        df
-        .withColumn("gross_amount", F.round(F.col("quantity") * F.col("unit_price"), 2))
-        .withColumn(
-            "discount_amount",
-            F.round(F.col("gross_amount") * (F.col("discount_pct") / 100.0), 2),
-        )
-        .withColumn(
-            "net_amount",
-            F.round(F.col("gross_amount") - F.col("discount_amount"), 2),
-        )
-        .withColumn(
-            "total_amount",
-            F.round(F.col("net_amount") + F.col("tax_amount"), 2),
-        )
-    )
-
-
-def add_date_key(df):
-    """Integer surrogate key joining to gld_dim_calendar."""
-    return df.withColumn("date_id", F.date_format("dt", "yyyyMMdd").cast(IntegerType()))
-
-
-def add_coupon_flag(df):
-    """Flag rows with a usable coupon code.
-
-    Silver trims coupon_code, so absent values may be empty strings
-    rather than nulls — both count as no coupon.
-    """
-    return df.withColumn(
-        "coupon_flag",
-        F.when(
-            F.col("coupon_code").isNotNull() & (F.length(F.col("coupon_code")) > 0),
-            F.lit(1),
-        ).otherwise(F.lit(0)),
-    )
-
-
-def convert_to_reporting_currency(df, rates_df):
-    """Convert total_amount to INR using fixed point-in-time rates."""
-    return (
-        df.join(
-            rates_df,
-            F.upper(F.trim(F.col("unit_price_currency"))) == rates_df.currency,
-            "left",
-        )
-        .withColumn(
-            "total_amount_inr",
-            F.round(F.col("total_amount") * F.col("inr_rate"), 2),
-        )
-        .drop("currency")
-    )
-
-
-def select_fact_columns(df):
-    """Project and rename to the published fact grain."""
-    return df.select(
-        F.col("date_id"),
-        F.col("dt").alias("transaction_date"),
-        F.col("order_ts").alias("transaction_ts"),
-        F.col("order_id").alias("transaction_id"),
-        F.col("item_seq").alias("seq_no"),
-        F.col("customer_id"),
-        F.col("product_id"),
-        F.col("channel"),
-        F.col("coupon_code"),
-        F.col("coupon_flag"),
-        F.col("unit_price_currency"),
-        F.col("quantity"),
-        F.col("unit_price"),
-        F.col("gross_amount"),
-        F.col("discount_pct").alias("discount_percent"),
-        F.col("discount_amount"),
-        F.col("net_amount"),
-        F.col("tax_amount"),
-        F.col("total_amount"),
-        F.col("total_amount_inr"),
-    )
-
-def resolve_unknown_customers(df, dim_customers):
-    """Map fact rows with no matching customer to the Unknown member.
-
-    Order line items are preserved even when customer attribution is missing,
-    so revenue reconciles to source and the attribution gap stays queryable
-    rather than silently disappearing from the fact table.
-    """
-    valid = (
-        dim_customers
-        .select("customer_id")
-        .withColumn("_matched", F.lit(True))
-    )
-    return (
-        df.join(valid, "customer_id", "left")
-        .withColumn(
-            "customer_id",
-            F.when(F.col("_matched").isNull(), F.lit(UNKNOWN_KEY))
-            .otherwise(F.col("customer_id")),
-        )
-        .drop("_matched")
-    )
 
 # COMMAND ----------
 
@@ -174,7 +74,7 @@ df_gold_order_items = (
     .transform(add_date_key)
     .transform(add_coupon_flag)
     .transform(convert_to_reporting_currency, rates_df)
-    .transform(resolve_unknown_customers, spark.table(f"{GOLD}.gld_dim_customers"))
+    .transform(resolve_unknown_customers, spark.table(f"{GOLD}.gld_dim_customers"), UNKNOWN_KEY)
     .transform(select_fact_columns)
 )
 

@@ -1,5 +1,8 @@
 # Databricks notebook source
-# Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Shared configuration
 # MAGIC `%run` this from every pipeline notebook. Defines catalog, schema,
@@ -21,3 +24,14 @@ RAW_ROOT = f"/Volumes/{CATALOG}/source_data/raw"
 UNKNOWN_VALUE = "Not Available"
 UNKNOWN_REGION = "Other"
 UNKNOWN_KEY = "-1"
+
+# COMMAND ----------
+
+import sys, os
+
+REPO_ROOT = os.path.dirname(os.getcwd())
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+print(f"Repo root: {REPO_ROOT}")
+print(f"src exists: {os.path.isdir(os.path.join(REPO_ROOT, 'src'))}")

@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %run ../conf/config
 
 # COMMAND ----------
@@ -26,8 +30,24 @@
 
 # COMMAND ----------
 
-from pyspark.sql.types import IntegerType, FloatType
 import pyspark.sql.functions as F
+
+from src.transforms.dimensions import (
+    clean_brand_names,
+    normalize_brand_category_codes,
+    normalize_category_codes,
+    deduplicate_categories,
+    parse_product_dimensions,
+    normalize_product_codes,
+    correct_material_spellings,
+    clean_rating_counts,
+    drop_rows_missing_customer_id,
+    fill_missing_phone,
+    parse_calendar_dates,
+    deduplicate_calendar,
+    normalize_day_names,
+    add_period_labels,
+)
 
 # COMMAND ----------
 
@@ -37,33 +57,6 @@ import pyspark.sql.functions as F
 # COMMAND ----------
 
 df_bronze_brands = spark.table(f"{BRONZE}.brz_brands")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-CATEGORY_ANOMALIES = {
-    "GROCERY": "GRCY",
-    "TOYS": "TOY",
-    "BOOKS": "BKS",
-}
-
-def clean_brand_names(df):
-    """Trim whitespace from brand_name and strip non-alphanumerics from brand_code."""
-    return (
-        df
-        .withColumn("brand_name", F.trim(F.col("brand_name")))
-        .withColumn(
-            "brand_code", F.regexp_replace(F.col("brand_code"), r"[^a-zA-Z0-9]", "")
-        )
-    )
-
-def normalize_brand_category_codes(df):
-    """Map known non-standard category_code values to their canonical codes."""
-    return df.replace(CATEGORY_ANOMALIES, subset="category_code")
 
 # COMMAND ----------
 
@@ -94,22 +87,6 @@ df_bronze_category = spark.table(f"{BRONZE}.brz_category")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-def deduplicate_categories(df):
-    """Keep one row per category_code."""
-    return df.dropDuplicates(["category_code"])
-
-
-def normalize_category_codes(df):
-    """Uppercase category_code."""
-    return df.withColumn("category_code", F.upper(F.col("category_code")))
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ### Pipeline
 
 # COMMAND ----------
@@ -125,7 +102,6 @@ df_silver_category = (
 # Write raw data to the silver layer (catalog: ecommerce, schema: silver, table: slv_category)
 df_silver_category.write.format('delta') \
     .mode('overwrite')\
-    \
     .saveAsTable(f"{SILVER}.slv_category")
 
 # COMMAND ----------
@@ -141,52 +117,6 @@ df_bronze_products = spark.read.table(f"{BRONZE}.brz_products")
 
 # MAGIC %md
 # MAGIC ### Transformations
-
-# COMMAND ----------
-
-MATERIAL_MISSPELLINGS = {
-    "Coton": "Cotton",
-    "Ruber": "Rubber",
-    "Alumium": "Aluminium",
-}
-
-
-def parse_product_dimensions(df):
-    """Strip unit/format artifacts from weight_grams and length_cm, then cast to numeric."""
-    return (
-        df
-        .withColumn(
-            "weight_grams",
-            F.regexp_replace(F.col("weight_grams"), "g", "").cast(IntegerType()),
-        )
-        .withColumn(
-            "length_cm",
-            F.regexp_replace(F.col("length_cm"), ",", ".").cast(FloatType()),
-        )
-    )
-
-
-def normalize_product_codes(df):
-    """Uppercase brand_code and category_code."""
-    return (
-        df
-        .withColumn("brand_code", F.upper(F.col("brand_code")))
-        .withColumn("category_code", F.upper(F.col("category_code")))
-    )
-
-
-def correct_material_spellings(df):
-    """Map known material misspellings to their correct values."""
-    return df.replace(MATERIAL_MISSPELLINGS, subset="material")
-
-
-def clean_rating_counts(df):
-    """Take the absolute value of rating_count, defaulting nulls to 0."""
-    return df.withColumn(
-        "rating_count",
-        F.when(F.col("rating_count").isNotNull(), F.abs(F.col("rating_count")))
-         .otherwise(F.lit(0)),
-    )
 
 # COMMAND ----------
 
@@ -207,7 +137,6 @@ df_silver_products = (
 
 df_silver_products.write.format("delta")\
     .mode("overwrite") \
-    .option("mergeSchema", "true") \
     .saveAsTable(f"{SILVER}.slv_products")
 
 # COMMAND ----------
@@ -222,22 +151,6 @@ df_bronze_customers = spark.read.table(f"{BRONZE}.brz_customers")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-def drop_rows_missing_customer_id(df):
-    """Drop rows with no customer_id."""
-    return df.dropna(subset=["customer_id"])
-
-
-def fill_missing_phone(df):
-    """Replace null phone values with a placeholder."""
-    return df.fillna(f"{UNKNOWN_VALUE}", subset=["phone"])
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ### Pipeline
 
 # COMMAND ----------
@@ -245,7 +158,7 @@ def fill_missing_phone(df):
 df_silver_customers = (
     df_bronze_customers
     .transform(drop_rows_missing_customer_id)
-    .transform(fill_missing_phone)
+    .transform(fill_missing_phone, UNKNOWN_VALUE)
 )
 
 # COMMAND ----------
@@ -260,46 +173,6 @@ df_silver_customers.write.format('delta').mode('overwrite').saveAsTable(f"{SILVE
 # COMMAND ----------
 
 df_bronze_calendar = spark.read.table(f"{BRONZE}.brz_calendar")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Transformations
-
-# COMMAND ----------
-
-def parse_calendar_dates(df):
-    """Convert the date string column to a proper date type."""
-    return df.withColumn("date", F.to_date(F.col("date"), "dd-MM-yyyy"))
-
-
-def deduplicate_calendar(df):
-    """Keep one row per date."""
-    return df.dropDuplicates(["date"])
-
-
-def normalize_day_names(df):
-    """Capitalize the first letter of each word in day_name."""
-    return df.withColumn("day_name", F.initcap(F.col("day_name")))
-
-def add_period_labels(df):
-    """Add year-scoped quarter and week labels, preserving the numeric originals.
-
-    Numeric quarter and week_of_year are kept for sorting; the label columns
-    are for display. String labels sort incorrectly (Week10 before Week9).
-    """
-    return (
-        df
-        .withColumn("week_of_year", F.abs(F.col("week_of_year")))
-        .withColumn(
-            "quarter_label",
-            F.concat(F.lit("Q"), F.col("quarter"), F.lit("-"), F.col("year")),
-        )
-        .withColumn(
-            "week_label",
-            F.concat(F.lit("Week"), F.col("week_of_year"), F.lit("-"), F.col("year")),
-        )
-    )
 
 # COMMAND ----------
 
