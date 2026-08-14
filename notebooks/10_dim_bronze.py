@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %run ../conf/config
 
 # COMMAND ----------
@@ -68,7 +72,7 @@ df_category = spark.read.option("header", "true").option("delimiter", ",").schem
 # add metadata columns
 df_category = df_category.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
-# Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_category)
+# Write raw data to the Bronze layer
 df_category.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_category")
 
 # COMMAND ----------
@@ -101,7 +105,7 @@ df_products = spark.read.option("header", "true").option("delimiter", ",").schem
 # Add metadata columns
 df_products = df_products.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
-# Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_products)
+# Write raw data to the Bronze layer
 df_products.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_products")
 
 # COMMAND ----------
@@ -127,7 +131,7 @@ df_customers = spark.read.option("header", "true").option("delimiter", ",").sche
 # add metadata columns
 df_customers = df_customers.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
-# Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_customers)
+# Write raw data to the Bronze layer
 df_customers.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_customers")
 
 # COMMAND ----------
@@ -152,7 +156,7 @@ df_calendar = spark.read.option("header", "true").option("delimiter", ",").schem
 # add metadata columns
 df_calendar = df_calendar.withColumn("_source_file", F.col("_metadata.file_path")).withColumn("_ingested_at", F.current_timestamp())
 
-# Write raw data to the Bronze layer (catalog: ecommerce, schema: bronze, table: brz_date)
+# Write raw data to the Bronze layer
 df_calendar.write.format("delta").mode('overwrite').saveAsTable(f"{BRONZE}.brz_calendar")
 
 # COMMAND ----------

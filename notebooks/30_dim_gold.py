@@ -106,7 +106,7 @@ df_gold_customers = (
 
 # COMMAND ----------
 
-# Write raw data to the gold layer (catalog: ecommerce, schema: gold, table: gld_dim_customers)
+# Write raw data to the gold layer
 df_gold_customers.write.format("delta") \
     .mode("overwrite") \
     .saveAsTable(f"{GOLD}.gld_dim_customers")

@@ -99,7 +99,7 @@ df_silver_category = (
 
 # COMMAND ----------
 
-# Write raw data to the silver layer (catalog: ecommerce, schema: silver, table: slv_category)
+# Write raw data to the silver layer
 df_silver_category.write.format('delta') \
     .mode('overwrite')\
     .saveAsTable(f"{SILVER}.slv_category")

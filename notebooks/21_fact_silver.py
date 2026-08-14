@@ -65,7 +65,7 @@ df_silver_order_items = (
 
 # COMMAND ----------
 
-# Write raw data to the silver layer (catalog: ecommerce, schema: silver, table: slv_order_items)
+# Write raw data to the silver layer
 df_silver_order_items.write.format("delta") \
     .mode("overwrite") \
     .saveAsTable(f"{SILVER}.slv_order_items")
