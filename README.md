@@ -1,5 +1,7 @@
 # E-Commerce Lakehouse — Databricks Medallion Pipeline
 
+[![tests](https://github.com/atchyuthd/databricks-medallion-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/atchyuthd/databricks-medallion-pipeline/actions/workflows/tests.yml)
+
 A production-shaped batch pipeline that ingests raw e-commerce CSVs, cleanses them
 through a medallion architecture, and publishes a dimensional star schema for BI
 consumption. Built on Databricks with Unity Catalog and Delta Lake.
@@ -20,17 +22,17 @@ flowchart LR
         CSV["CSV files<br/>Unity Catalog Volume"]
     end
 
-    subgraph BRZ["Bronze — raw"]
+    subgraph BRZ["Bronze - raw"]
         B1["brz_brands<br/>brz_category<br/>brz_products<br/>brz_customers<br/>brz_calendar"]
         B2["brz_order_items"]
     end
 
-    subgraph SLV["Silver — cleansed"]
+    subgraph SLV["Silver - cleansed"]
         S1["slv_brands<br/>slv_category<br/>slv_products<br/>slv_customers<br/>slv_calendar"]
         S2["slv_order_items"]
     end
 
-    subgraph GLD["Gold — star schema"]
+    subgraph GLD["Gold - star schema"]
         G1["gld_dim_products<br/>gld_dim_customers<br/>gld_dim_calendar"]
         G2["gld_fact_order_items"]
     end
@@ -44,7 +46,7 @@ flowchart LR
     G1 -.-> G2
 ```
 
-### Layer contracts
+### Layer Contracts
 
 Each layer has a defined responsibility, and the boundaries are enforced rather
 than incidental.
@@ -69,9 +71,9 @@ erDiagram
     gld_fact_order_items }o--|| gld_dim_calendar : date_id
 
     gld_fact_order_items {
-        int date_id FK
         string transaction_id PK
-        int seq_no PK
+        int seq_no
+        int date_id FK
         string customer_id FK
         string product_id FK
         string channel
@@ -122,6 +124,9 @@ erDiagram
     }
 ```
 
+The fact grain is the composite key `(transaction_id, seq_no)`; the diagram marks
+only the first, since Mermaid renders a single key marker per entity.
+
 **Measures.** `gross_amount` (quantity × unit price), `discount_amount`,
 `net_amount` (pre-tax), `total_amount` (tax-inclusive), and `total_amount_inr`
 for cross-currency reporting.
@@ -134,7 +139,7 @@ carries a primary key, the fact a composite primary key on
 
 ---
 
-## Source data and the defects it contains
+## Source Data and the Defects it Contains
 
 The sample data deliberately mirrors the kind of mess real source systems emit.
 The silver layer exists to handle it, so the defects are the interesting part.
@@ -152,7 +157,7 @@ batch drops rather than a single bulk extract.
 
 ---
 
-## Data quality
+## Data Quality
 
 Two complementary mechanisms, because they do different jobs.
 
@@ -175,12 +180,51 @@ The assertions enforce; the constraints describe.
 
 ---
 
-## Repository layout
+## Testing
+
+Transformation logic lives in `src/transforms/` as plain Python functions, so it
+runs and is verified outside Databricks entirely. Sixteen pytest cases execute
+against a local SparkSession — no cluster required.
+
+The tests target behaviour a future change could silently break:
+
+- **Anomaly handling** — spelled-out quantities, currency symbols, percent signs,
+  misspelled materials, negative rating counts
+- **Ordering dependencies** — category codes must be uppercased *before*
+  deduplication, or case-variant duplicates survive
+- **Deduplication correctness** — given the same line item in two batches, the later
+  one must win. This encodes a bug found during development, where `_ingested_at`
+  proved useless for ordering because Spark assigns it once per run rather than per
+  file
+- **Measure semantics** — `net_amount` excludes tax, `total_amount` includes it
+- **Sentinel behaviour** — an empty-string coupon is not a coupon; an orphaned fact
+  row is remapped rather than dropped, and revenue still reconciles
+
+GitHub Actions runs the suite on every push and pull request against a clean Ubuntu
+container, which also verifies `requirements.txt` is complete.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pytest tests -v
+```
+
+Local PySpark is pinned in `requirements.txt` and may differ from the Databricks
+runtime version. The DataFrame API used here is stable across both, but version
+skew is worth checking first if local results ever diverge from a pipeline run.
+
+---
+
+## Repository Layout
 
 ```
 .
 ├── databricks.yml                 # Bundle definition, dev/prod targets
+├── requirements.txt               # Python dependencies for local testing
 ├── README.md
+├── .github/workflows/
+│   └── tests.yml                  # CI: pytest on push and pull request
 ├── conf/
 │   ├── config.py                  # Catalog/schema constants, widget parameterization
 │   └── reference_data.py          # Static business lookups (regions, FX rates)
@@ -195,18 +239,25 @@ The assertions enforce; the constraints describe.
 │   ├── 21_fact_silver.py          # Order items cleansing
 │   ├── 30_dim_gold.py             # Dimension publishing
 │   └── 31_fact_gold.py            # Fact publishing
-└── resources/
-    └── job.yml                    # Job definition: task DAG and dependencies
+├── resources/
+│   └── job.yml                    # Job definition: task DAG and dependencies
+├── src/transforms/                # Importable transformation functions
+│   ├── dimensions.py
+│   └── order_items.py
+└── tests/                         # pytest suite
+    ├── conftest.py
+    ├── test_dimensions.py
+    └── test_order_items.py
 ```
 
 ---
 
-## Running it
+## Running It
 
 **Prerequisites:** a Databricks workspace (Free Edition is sufficient) with Unity
 Catalog enabled and permission to create a catalog.
 
-### Deploy the bundle
+### Deploy the Bundle
 
 ```bash
 databricks auth login --host https://<your-workspace>.cloud.databricks.com
@@ -230,7 +281,7 @@ catalog** widget appears at the top of each notebook, defaulting to `ecommerce`.
 
 ---
 
-## Engineering notes
+## Engineering Notes
 
 **One value controls the deployment target.** The catalog name flows through five
 layers without any of them knowing about the others: the bundle target sets a
@@ -245,6 +296,12 @@ notebook contains a hardcoded catalog name.
 — region mappings and FX rates — live in `conf/reference_data`, imported only by the
 two gold notebooks that need them, so each notebook's dependencies are visible at
 the top of the file.
+
+**Notebooks import from a package, not from cells.** `conf/config` prepends the
+repository root to `sys.path`, so every notebook that `%run`s it can import from
+`src.transforms`. The path is derived at runtime rather than hardcoded, which means
+the same code resolves whether the repo is running as a Databricks Git folder or
+from a bundle deployment.
 
 **Transformations are named functions.** Every cleansing step is a small function
 composed with `DataFrame.transform()` rather than a chain of anonymous
@@ -300,7 +357,7 @@ overwrite.
 
 ---
 
-## Design decisions and known limitations
+## Design Decisions and Known Limitations
 
 **Orphaned fact rows are preserved, not filtered.** The referential integrity check
 initially failed on 207 order line items whose `customer_id` had been dropped in
@@ -357,10 +414,8 @@ choice for financial data and would eliminate floating-point drift in aggregates
 - [x] Databricks Asset Bundle deploying the task DAG across dev and prod targets
 - [x] Data quality assertions on grain, key nullity, and referential integrity
 - [x] Primary and foreign keys declared in Unity Catalog
-- [ ] Transformation functions extracted to an importable package with `pytest` coverage
-- [ ] GitHub Actions CI running lint and tests on pull requests
-- [ ] SCD Type 2 on the customer dimension
-- [ ] Incremental fact ingestion via Auto Loader
+- [x] Transformation functions extracted to an importable package with `pytest` coverage
+- [x] GitHub Actions CI running tests on pull requests
 
 ---
 
